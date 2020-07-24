@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netcoreapp2.1</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.ComponentModel.Composition" Version="4.7.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="AxMSTSCLib">
+      <HintPath>C:\Users\ssfang\source\repos\RDCManPlugins\RDCMan\AxMSTSCLib.dll</HintPath>
+    </Reference>
+    <Reference Include="MSTSCLib">
+      <HintPath>C:\Users\ssfang\source\repos\RDCManPlugins\RDCMan\MSTSCLib.dll</HintPath>
+    </Reference>
+    <Reference Include="RDCMan">
+      <HintPath>C:\Users\ssfang\source\repos\RDCManPlugins\RDCMan\RDCMan.exe</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>

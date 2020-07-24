@@ -24,3 +24,13 @@ A plugin skeleton. Place the compiled dll in the same folder as RDCMan.exe
 
 ## Plugin.EnterPSSession ##
 ![Screenshot](./Images/Plugin.EnterPSSession.jpg)
+
+## References
+
+Thanks to:
+- [RDCManPlugins](https://github.com/Tadas/RDCManPlugins.git)
+- [ILSpy](https://github.com/icsharpcode/ILSpy/releases) an open-source .NET assembly browser and decompiler.
+
+See also:
+- [RDCMan](https://github.com/lzpong/RDCMan.git)
+- [RdcManPluginFix](https://github.com/Geosong/RdcManPluginFix.git)

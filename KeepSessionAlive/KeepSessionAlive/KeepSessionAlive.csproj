@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <RootNamespace>RdcManPlugin</RootNamespace>
+    <Description>This is a experimental plugin for Remote Desktop Connection Manager 2.7 (RDCMan)</Description>
+    <PackageReleaseNotes>For a plugin to be loaded the dll must be placed in the same folder as `RDCMan.exe` and it must be called `Plugin.*.dll`. For more info see `RdcMan.Program.InstantiatePlugins()` inside of `RDCMan.exe`</PackageReleaseNotes>
+    <PackageProjectUrl>https://github.com/Fang3s/RDCManPlugins.git</PackageProjectUrl>
+    <Company />
+    <Authors>Fang3s</Authors>
+    <ApplicationIcon />
+    <OutputType>Library</OutputType>
+    <StartupObject />
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.ComponentModel.Composition" Version="4.7.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="AxMSTSCLib">
+      <HintPath>C:\Users\ssfang\source\repos\RDCManPlugins\RDCMan\AxMSTSCLib.dll</HintPath>
+    </Reference>
+    <Reference Include="MSTSCLib">
+      <HintPath>C:\Users\ssfang\source\repos\RDCManPlugins\RDCMan\MSTSCLib.dll</HintPath>
+    </Reference>
+    <Reference Include="RDCMan">
+      <HintPath>C:\Users\ssfang\source\repos\RDCManPlugins\RDCMan\RDCMan.exe</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>
