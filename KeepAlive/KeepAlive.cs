@@ -12,6 +12,8 @@ using System.Security.Permissions;
 using System.Linq;
 using System.Windows.Threading;
 using System.Threading;
+using System.Collections.Generic;
+using Timer = System.Windows.Forms.Timer;
 /*
 Form
 +-------------------------------+
@@ -89,9 +91,12 @@ namespace Plugin.KeepAlive
 	[SecurityPermission(SecurityAction.LinkDemand, Flags = SecurityPermissionFlag.UnmanagedCode)]
 	public class PluginKeepAlive : IPlugin, IMessageFilter
 	{
+		private const int timerInterval = (60 + 58) * 1000; // 1 minute 58 seconds
+
 		//WindowsForms10.SysTreeView32.app.0.3d90434_r8_ad1
 		//internal class RdcMan.ServerTree : System.Windows.Forms.TreeView, RdcMan.IServerTree {}
 		private IServerTree serverTree;
+		private Dictionary<Server, Timer> serverTimers = new Dictionary<Server, Timer>();
 
 		/// <summary>
 		/// called when the user right clicks a server node in the tree
@@ -238,6 +243,34 @@ namespace Plugin.KeepAlive
 		[DllImport("user32.dll", CharSet = CharSet.Auto)]
 		public static extern int MapVirtualKey(int uCode, int uMapType);
 
+		// Marshalling a NULL pointer: If it returns a NULL pointer, you'll get IntPtr.Zero on the managed side.
+		// https://docs.microsoft.com/en-us/archive/msdn-magazine/2003/july/net-column-calling-win32-dlls-in-csharp-with-p-invoke
+
+		/// <summary>
+		/// Retrieves a handle to the foreground window (the window with which the user is currently working).
+		/// The system assigns a slightly higher priority to the thread that creates the foreground window than
+		/// it does to other threads.
+		/// </summary>
+		/// <returns>
+		/// The return value is a handle to the foreground window. The foreground window can be NULL
+		/// in certain circumstances, such as when a window is losing activation.
+		/// </returns>
+		[DllImport("user32.dll")]
+		private static extern IntPtr GetForegroundWindow();
+
+		/// <summary>
+		/// Retrieves the window handle to the active window attached to the calling thread's message queue.
+		/// </summary>
+		/// <returns>
+		/// The return value is the handle to the active window attached to the calling thread's
+		/// message queue. Otherwise, the return value is NULL.
+		/// </returns>
+		/// <remarks>
+		/// To get the handle to the foreground window, you can use GetForegroundWindow.
+		/// To get the window handle to the active window in the message queue for another thread, use GetGUIThreadInfo.
+		/// </remarks>
+		[DllImport("user32.dll")]
+		private static extern IntPtr GetActiveWindow();
 
 		/// <summary>
 		/// Activates a window. The window must be attached to the calling thread's message queue.
@@ -266,15 +299,23 @@ namespace Plugin.KeepAlive
 		[DllImport("user32.dll", SetLastError = true)]
 		static extern bool PostMessage(HandleRef hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
+
+		[DllImport("user32.dll", ExactSpelling = true)]
+		static extern IntPtr SetTimer(IntPtr hWnd, IntPtr nIDEvent, uint uElapse, TimerProc lpTimerFunc);
+		//https://stackoverflow.com/questions/26179691/callbacks-from-c-to-c-sharp
+		[UnmanagedFunctionPointer(CallingConvention.StdCall)]
+		delegate void TimerProc(IntPtr hWnd, uint uMsg, IntPtr nIDEvent, uint dwTime);
+#if false // or alternatively
+		[DllImport("user32.dll", ExactSpelling = true)]
+		static extern IntPtr SetTimer(IntPtr hWnd, IntPtr nIDEvent, uint uElapse, IntPtr lpTimerFunc);
+#endif
+
 		private void Server_ConnectionStateChanged(ConnectionStateChangedEventArgs obj)
 		{
 			Debug.WriteLine("{0}|{1:x}|Server_ConnectionStateChanged|{2}:{3}", DateTime.Now.ToString("o"), GetCurrentThreadId(), obj.Server.Text, obj.State.ToString());
 			RdpClient rdpClient = Util.GetRdpClient(obj.Server);
 			if (ConnectionState.Connected == obj.State)
 			{
-				//bool[] bools = { false, false, false, true, true, true, };
-				//int[] ints = { 0x1d, 0x38, 0x53, 0x53, 0x38, 0x1d };
-				//rdpClient.ClientNonScriptable3.SendKeys(ints.Length, bools, ints);
 				if (rdpClient.Control.InvokeRequired)
 				{
 					Debug.WriteLine("in non-UI Thread");
@@ -292,6 +333,14 @@ namespace Plugin.KeepAlive
 				if (null != dispatcher)
 				{
 					Debug.WriteLine("We know the thread have a dispatcher that we can use");
+				}
+			}
+			else
+			{
+				if (serverTimers.TryGetValue(obj.Server, out Timer timer))
+				{
+					timer.Stop();
+					serverTimers.Remove(obj.Server);
 				}
 			}
 			//if Server#ConnectionStateChanged is Disconnected, rdpClient is null.
@@ -339,11 +388,16 @@ namespace Plugin.KeepAlive
 			//https://stackoverflow.com/questions/1416803/system-timers-timer-vs-system-threading-timer
 			//System.Windows.Forms wraps a native message-only-HWND and uses Window Timers to raise events in that HWNDs message loop.
 			//var keepAliveTimer = new KeepAliveTimer();
-			var keepAliveTimer = new System.Windows.Forms.Timer();
-			keepAliveTimer.Interval = ((2) * 1000); // 1 minute 58 seconds
+			var keepAliveTimer = new Timer();
+			keepAliveTimer.Interval = timerInterval;
 			keepAliveTimer.Tick += new EventHandler(KeepAliveTimer_Tick);
 			keepAliveTimer.Tag = rdcServer;
 			keepAliveTimer.Start();
+			if (serverTimers.TryGetValue(rdcServer, out Timer timer))
+			{
+				timer.Stop();
+			}
+			serverTimers[rdcServer] = keepAliveTimer;
 		}
 
 		/// <summary>
@@ -361,29 +415,47 @@ namespace Plugin.KeepAlive
 			return false;
 		}
 
+		/// https://docs.microsoft.com/en-us/dotnet/api/system.windows.window.isactive?view=netcore-3.1
+		/// An active window is the user's current foreground window and has the focus, which is signified by the
+		/// active appearance of the title bar. An active window will also be the top-most of all top-level windows
+		/// that don't explicitly set the Topmost property.
+		bool IsActiveWindow(Control control)
+		{
+			var hWndForeground = GetForegroundWindow();
+			var hWndActive = GetActiveWindow();
+			var form = control.FindForm();
+
+			Debug.WriteLine("{0}|{1:x}|IsActiveWindow|Control={2:x}, Foreground={3:x}, Active={4:x}, Form={5:x}", DateTime.Now.ToString("o"), GetCurrentThreadId(), control.Handle.ToInt64(), hWndForeground.ToInt64(), hWndActive.ToInt64(), form.Handle.ToInt64());
+
+			return ((from f in form.MdiChildren select f.Handle)
+				.Union(from f in form.OwnedForms select f.Handle)
+				.Union(new IntPtr[] { form.Handle })).Contains(hWndForeground);
+		}
+
 		private void KeepAliveTimer_Tick(object sender, EventArgs e)
 		{
 			//string data = ((CustomDerivedTimer)sender).Data;
-			Debug.WriteLine("{0}|{1:x}|KeepAliveTimer_Tick", DateTime.Now.ToString("o"), PluginKeepAlive.GetCurrentThreadId());
+			Debug.WriteLine("{0}|{1:x}|KeepAliveTimer_Tick", DateTime.Now.ToString("o"), GetCurrentThreadId());
 
 			//https://stackoverflow.com/questions/59624421/rdp-activex-sendkeys-winl-to-lock-screen
 			//https://stackoverflow.com/questions/1069990/keep-alive-code-fails-with-new-rdp-client
-			var timer = (System.Windows.Forms.Timer)sender;
+			var timer = (Timer)sender;
 			var rdcServer = (Server)timer.Tag;
-			const uint WM_ACTIVATE = 0x006;
-			const uint WA_ACTIVE = 1;
-			SendMessage(rdcServer.Handle, WM_ACTIVATE, WA_ACTIVE, 0);
+
+			//const uint WM_ACTIVATE = 0x006;
+			//const uint WA_ACTIVE = 1;
+			//SendMessage(rdcServer.Handle, WM_ACTIVATE, WA_ACTIVE, 0);
 
 			try
 			{
 				RdpClient rdpClient = Util.GetRdpClient(rdcServer);
 
+				IsActiveWindow(rdpClient.Control);
+
 				rdpClient.Control.WindowTarget.GetType();
 				IntPtr hwnd = rdpClient.Control.Handle;
-				Debug.WriteLine("{0}|KeepAliveTimer_Tick|rdpClient.Control.Handle={1:x}", DateTime.Now.ToString("o"), hwnd);
-				//SendMessage(hwnd, );
-				//MenuHelper.AddSendKeysMenuItems(MainForm#_sessionRemoteActionsMenuItem, ServerTree.Instance.SelectedNode as ServerBase);
-				var keyCodes = new Keys[] { Keys.ControlKey, Keys.ShiftKey, Keys.Escape };
+				Debug.WriteLine("{0}|KeepAliveTimer_Tick|rdpClient.Control.Handle={1:x}", DateTime.Now.ToString("o"), hwnd.ToInt64());
+				var keyCodes = new Keys[] { Keys.Scroll }; //Keys.ControlKey, Keys.ShiftKey, Keys.Escape
 				Util.SendKeys(keyCodes, rdcServer);
 			}
 			catch (Exception ex)
@@ -416,7 +488,7 @@ namespace Plugin.KeepAlive
 #endif
 	}
 
-	public class KeepAliveTimer : System.Windows.Forms.Timer
+	public class KeepAliveTimer : Timer
 	{
 		Server server;
 
@@ -497,6 +569,7 @@ namespace Plugin.KeepAlive
 			}
 		}
 #else
+		//MenuHelper.AddSendKeysMenuItems(MainForm#_sessionRemoteActionsMenuItem, ServerTree.Instance.SelectedNode as ServerBase);
 		public static void SendKeys(Keys[] keyCodes, ServerBase serverBase)
 		{
 			object[] args = new object[] { keyCodes, serverBase };
